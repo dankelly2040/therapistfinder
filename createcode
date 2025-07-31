@@ -1,0 +1,511 @@
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+  RefreshControl,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
+import {
+  useFonts,
+  Poppins_400Regular,
+  Poppins_500Medium,
+  Poppins_600SemiBold,
+} from "@expo-google-fonts/poppins";
+import {
+  Heart,
+  MapPin,
+  DollarSign,
+  ChevronRight,
+  HeartOff,
+} from "lucide-react-native";
+import * as Haptics from "expo-haptics";
+import { useColors } from "@/components/useColors";
+import Header from "@/components/Header";
+import { StatusBar } from "expo-status-bar";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Image } from "expo-image";
+
+export default function FavoritesScreen() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const colors = useColors();
+
+  const [fontsLoaded] = useFonts({
+    Poppins_400Regular,
+    Poppins_500Medium,
+    Poppins_600SemiBold,
+  });
+
+  const [favorites, setFavorites] = useState([]);
+  const [showHeaderBorder, setShowHeaderBorder] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [sessionToken, setSessionToken] = useState("");
+
+  // Initialize session token
+  useEffect(() => {
+    const initSession = async () => {
+      let token = await AsyncStorage.getItem("therapist_session_token");
+      if (!token) {
+        token = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        await AsyncStorage.setItem("therapist_session_token", token);
+      }
+      setSessionToken(token);
+    };
+    initSession();
+  }, []);
+
+  // Load favorites when component mounts
+  useEffect(() => {
+    if (sessionToken) {
+      loadFavorites();
+    }
+  }, [sessionToken]);
+
+  // Refresh favorites when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      if (sessionToken) {
+        loadFavorites();
+      }
+    }, [sessionToken]),
+  );
+
+  const loadFavorites = async () => {
+    setIsLoading(true);
+
+    try {
+      const response = await fetch(
+        `/api/favorites?sessionToken=${sessionToken}`,
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to load favorites");
+      }
+
+      const { favorites: favoriteTherapists } = await response.json();
+      setFavorites(favoriteTherapists || []);
+    } catch (error) {
+      console.error("Error loading favorites:", error);
+      Alert.alert("Error", "Unable to load your favorites. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadFavorites();
+    setRefreshing(false);
+  };
+
+  const handleScroll = (event) => {
+    const scrollY = event.nativeEvent.contentOffset.y;
+    setShowHeaderBorder(scrollY > 10);
+  };
+
+  const handleTherapistPress = (therapistId) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push(`/(tabs)/therapist/${therapistId}`);
+  };
+
+  const handleRemoveFavoritePress = async (therapistId) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    Alert.alert(
+      "Remove from Favorites",
+      "Are you sure you want to remove this therapist from your favorites?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const response = await fetch("/api/favorites", {
+                method: "DELETE",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  sessionToken,
+                  therapistId,
+                }),
+              });
+
+              if (response.ok) {
+                setFavorites((prev) =>
+                  prev.filter((fav) => fav.id !== therapistId),
+                );
+                Alert.alert("Success", "Therapist removed from favorites!");
+              }
+            } catch (error) {
+              console.error("Error removing from favorites:", error);
+              Alert.alert(
+                "Error",
+                "Unable to remove from favorites. Please try again.",
+              );
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleMenuPress = () => {
+    // TODO: Implement menu/drawer navigation
+  };
+
+  const handleProfilePress = () => {
+    router.push("/(tabs)/settings");
+  };
+
+  if (!fontsLoaded) {
+    return null;
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <StatusBar style={colors.text === "#FFFFFF" ? "light" : "dark"} />
+
+      {/* Fixed Header */}
+      <View
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1000,
+        }}
+      >
+        <Header
+          title="My Favorites"
+          showBorder={showHeaderBorder}
+          onMenuPress={handleMenuPress}
+          onProfilePress={handleProfilePress}
+        />
+      </View>
+
+      {/* Favorites List */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          paddingTop: insets.top + 56 + 20,
+          paddingHorizontal: 16,
+          paddingBottom: insets.bottom + 20,
+        }}
+        showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.primary}
+          />
+        }
+      >
+        {isLoading && favorites.length === 0 ? (
+          <View style={{ alignItems: "center", marginTop: 60 }}>
+            <Text
+              style={{
+                fontSize: 16,
+                fontFamily: "Poppins_400Regular",
+                color: colors.textSecondary,
+              }}
+            >
+              Loading your favorites...
+            </Text>
+          </View>
+        ) : favorites.length === 0 ? (
+          <View style={{ alignItems: "center", marginTop: 60 }}>
+            <View
+              style={{
+                width: 80,
+                height: 80,
+                borderRadius: 40,
+                backgroundColor: colors.cardBackground,
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 20,
+              }}
+            >
+              <HeartOff size={32} color={colors.textSecondary} />
+            </View>
+
+            <Text
+              style={{
+                fontSize: 18,
+                fontFamily: "Poppins_600SemiBold",
+                color: colors.text,
+                textAlign: "center",
+                marginBottom: 12,
+              }}
+            >
+              No favorites yet
+            </Text>
+            <Text
+              style={{
+                fontSize: 16,
+                fontFamily: "Poppins_400Regular",
+                color: colors.textSecondary,
+                textAlign: "center",
+                lineHeight: 24,
+                marginBottom: 24,
+              }}
+            >
+              Start browsing therapists and add your favorites to keep track of
+              the ones you're interested in.
+            </Text>
+            <TouchableOpacity
+              onPress={() => router.push("/(tabs)/")}
+              style={{
+                backgroundColor: colors.primary,
+                borderRadius: 12,
+                paddingHorizontal: 24,
+                paddingVertical: 12,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontFamily: "Poppins_500Medium",
+                  color: colors.background,
+                }}
+              >
+                Find Therapists
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            <Text
+              style={{
+                fontSize: 16,
+                fontFamily: "Poppins_500Medium",
+                color: colors.textSecondary,
+                marginBottom: 20,
+              }}
+            >
+              {favorites.length} favorite therapist
+              {favorites.length !== 1 ? "s" : ""}
+            </Text>
+
+            {favorites.map((therapist) => (
+              <TouchableOpacity
+                key={therapist.id}
+                onPress={() => handleTherapistPress(therapist.id)}
+                style={{
+                  backgroundColor: colors.cardBackground,
+                  borderWidth: 1,
+                  borderColor: colors.outline,
+                  borderRadius: 16,
+                  padding: 20,
+                  marginBottom: 16,
+                }}
+              >
+                {/* Header Row */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "flex-start",
+                    marginBottom: 16,
+                  }}
+                >
+                  {/* Profile Image */}
+                  <Image
+                    source={{ uri: therapist.photo_url }}
+                    style={{
+                      width: 60,
+                      height: 60,
+                      borderRadius: 30,
+                      backgroundColor: colors.outline,
+                    }}
+                    contentFit="cover"
+                    transition={100}
+                  />
+
+                  {/* Therapist Info */}
+                  <View style={{ flex: 1, marginLeft: 16 }}>
+                    <Text
+                      style={{
+                        fontSize: 18,
+                        fontFamily: "Poppins_600SemiBold",
+                        color: colors.text,
+                        marginBottom: 4,
+                      }}
+                    >
+                      {therapist.name}
+                    </Text>
+
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        fontFamily: "Poppins_400Regular",
+                        color: colors.textSecondary,
+                        marginBottom: 8,
+                      }}
+                    >
+                      {therapist.years_experience} years experience
+                    </Text>
+
+                    {/* Location */}
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        marginBottom: 4,
+                      }}
+                    >
+                      <MapPin size={14} color={colors.textSecondary} />
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          fontFamily: "Poppins_400Regular",
+                          color: colors.textSecondary,
+                          marginLeft: 6,
+                        }}
+                      >
+                        {therapist.city}, {therapist.state}
+                      </Text>
+                    </View>
+
+                    {/* Price Range */}
+                    <View
+                      style={{ flexDirection: "row", alignItems: "center" }}
+                    >
+                      <DollarSign size={14} color={colors.textSecondary} />
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          fontFamily: "Poppins_400Regular",
+                          color: colors.textSecondary,
+                          marginLeft: 6,
+                        }}
+                      >
+                        ${therapist.session_rate_min}-$
+                        {therapist.session_rate_max} per session
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Remove and Arrow */}
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <TouchableOpacity
+                      onPress={() => handleRemoveFavoritePress(therapist.id)}
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 16,
+                        backgroundColor: colors.background,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Heart
+                        size={16}
+                        color={colors.error}
+                        fill={colors.error}
+                      />
+                    </TouchableOpacity>
+
+                    <ChevronRight size={16} color={colors.textSecondary} />
+                  </View>
+                </View>
+
+                {/* Specialties */}
+                {therapist.specialties && therapist.specialties.length > 0 && (
+                  <View style={{ marginBottom: 8 }}>
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        fontFamily: "Poppins_500Medium",
+                        color: colors.text,
+                        marginBottom: 6,
+                      }}
+                    >
+                      Specialties:
+                    </Text>
+                    <View
+                      style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}
+                    >
+                      {therapist.specialties
+                        .slice(0, 3)
+                        .map((specialty, index) => (
+                          <View
+                            key={index}
+                            style={{
+                              backgroundColor: colors.primaryUltraLight,
+                              borderRadius: 8,
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                fontFamily: "Poppins_400Regular",
+                                color: colors.primary,
+                              }}
+                            >
+                              {specialty}
+                            </Text>
+                          </View>
+                        ))}
+                      {therapist.specialties.length > 3 && (
+                        <View
+                          style={{
+                            backgroundColor: colors.outline,
+                            borderRadius: 8,
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              fontFamily: "Poppins_400Regular",
+                              color: colors.textSecondary,
+                            }}
+                          >
+                            +{therapist.specialties.length - 3} more
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                )}
+
+                {/* Favorited Date */}
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontFamily: "Poppins_400Regular",
+                    color: colors.textSecondary,
+                  }}
+                >
+                  Added to favorites on{" "}
+                  {new Date(therapist.favorited_at).toLocaleDateString()}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
